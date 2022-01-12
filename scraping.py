@@ -1,163 +1,166 @@
 # Import Splinter, BeautifulSoup, and Pandas
 from splinter import Browser
 from bs4 import BeautifulSoup as soup
-import pandas as pd 
-import datetime as dt 
+import pandas as pd
+import datetime as dt
+
 
 def scrape_all():
-    # Initiate headless driver
+    # Initiate headless driver for deployment
     browser = Browser("chrome", executable_path="chromedriver", headless=True)
-    # Set executable path and initialize the chrome browser in splinter 
-    #executable_path = {'executable_path': '/usr/local/bin/chromedriver'}
-    #browser = Browser('chrome', **executable_path)
 
-    # Since these are pairs 
-    news_title, news_paragraph= mars_news(browser)
-    hemisphere_image_urls=hemisphere(browser)
-    # Run all scraping functions and store results in dictionary 
-    data={
+    news_title, news_paragraph = mars_news(browser)
+    print(news_title)
+
+    # Run all scraping functions and store results in a dictionary
+    data = {
         "news_title": news_title,
         "news_paragraph": news_paragraph,
         "featured_image": featured_image(browser),
         "facts": mars_facts(),
-        "hemispheres": hemisphere_image_urls,
-        "last_modified": dt.datetime.now()
+        "last_modified": dt.datetime.now(),
+        "hemispheres": hemisphere_images(browser)
     }
+    print(data)
 
     # Stop webdriver and return data
     browser.quit()
     return data
 
 
-## > SCRAPE MARS NEWS <
-
 def mars_news(browser):
-
-    # visit NASA website 
-    url= 'https://mars.nasa.gov/news/'
+    print("mars_news")
+    # Scrape Mars News
+    # Visit the mars nasa news site
+    url = 'https://mars.nasa.gov/news/'
     browser.visit(url)
 
-    #Optional delay for website 
-    # Here we are searching for elements with a specific combination of tag (ul) and (li) and attriobute (item_lit) and (slide)
-    # Ex. being <ul class= "item_list">
+    # Optional delay for loading the page
     browser.is_element_present_by_css("ul.item_list li.slide", wait_time=1)
 
-    # HTML Parser. Convert the brpwser html to a soup object and then quit the browser
-    html= browser.html 
-    news_soup= soup(html, 'html.parser')
+    # Convert the browser html to a soup object and then quit the browser
+    html = browser.html
+    news_soup = soup(html, 'html.parser')
 
     # Add try/except for error handling
     try:
-        #slide_elem looks for <ul /> tags and descendents <li />
-        # the period(.) is used for selecting classes such as item_list
-        slide_elem= news_soup.select_one('ul.item_list li.slide')
-
-        # Chained the (.find) to slide_elem which says this variable holds lots of info, so look inside to find this specific entity
-        # Get Title
-        news_title=slide_elem.find('div', class_= 'content_title').get_text()
-        # Get article body
-        news_p= slide_elem.find('div', class_='article_teaser_body').get_text()
+        slide_elem = news_soup.select_one("ul.item_list li.slide")
+        # Use the parent element to find the first 'a' tag and save it as 'news_title'
+        news_title = slide_elem.find("div", class_="content_title").get_text()
+        # Use the parent element to find the paragraph text
+        news_p = slide_elem.find("div", class_="article_teaser_body").get_text()
 
     except AttributeError:
-        return None,None
+        return None, None
 
     return news_title, news_p
 
 
-## > SCRAPE FEATURED IMAGES <
-
 def featured_image(browser):
-
-    # Visit URL 
-    url= 'https://www.jpl.nasa.gov/spaceimages/?search=&category=Mar'
+    print("featured_image")
+    # Visit URL
+    url = 'https://data-class-jpl-space.s3.amazonaws.com/JPL_Space/index.html'
     browser.visit(url)
 
-    # Find and click the full_image button
-    full_image_elem= browser.find_by_id('full_image')[0]
+    # Find and click the full image button
+    full_image_elem = browser.find_by_tag('button')[1]
     full_image_elem.click()
 
-    # Find the more info button and click that 
-    # is_element_present_by_text() method to search for an element that has the provided text
-    browser.is_element_present_by_text('more info', wait_time=1)
-
-    # will take our string 'more info' and add link associated with it, then click
-    more_info_elem=browser.links.find_by_partial_text('more info')
-    more_info_elem.click()
-
     # Parse the resulting html with soup
-    html=browser.html
-    img_soup=soup(html, 'html.parser')
+    html = browser.html
+    img_soup = soup(html, 'html.parser')
 
     # Add try/except for error handling
     try:
-        # Find the relative image url 
-        # The 'figure.lede' references the <figure /> tag and its class=lede
-        # the 'a' is the next tag nested inside the <figure /> tag, as well as the 'img' tag 
-        # the .get('src') pulls the link to the image
+        # Find the relative image url
+        img_url_rel = img_soup.find('img', class_='fancybox-image').get('src')
 
-        # WE are telling soup to go to figure tag, then within that look for an 'a' tag then within that look for a 'img' tag
-        img_url_rel= img_soup.select_one('figure.lede a img').get("src")
-    
     except AttributeError:
         return None
-    # Need to get the FULL URL: Only had relative path before
-    img_url= f'https://www.jpl.nasa.gov{img_url_rel}'
+
+    # Use the base url to create an absolute url
+    img_url = f'https://data-class-jpl-space.s3.amazonaws.com/JPL_Space/{img_url_rel}'
 
     return img_url
 
-
-## > SCRAPE FACTS ABOUT MARS <
-
 def mars_facts():
-    
+    print("mars_facts")
     # Add try/except for error handling
     try:
-        # Creating DF by telling function to look for first html table in site it encounters by indexing it to zero
-        df=pd.read_html('http://space-facts.com/mars/')[0]
+        # Use 'read_html' to scrape the facts table into a dataframe
+        df = pd.read_html('http://space-facts.com/mars/')[0]
 
-    # BaseException, catches multiple types of errors
     except BaseException:
         return None
+
+    # Assign columns and set index of dataframe
+    df.columns=['Description', 'Mars']
+    df.set_index('Description', inplace=True)
+
+    # Convert dataframe into HTML format, add bootstrap
+    return df.to_html(classes="table table-striped")
+
+def hemisphere_images(browser):
+    print("hemisphere_images")
+    # Add try/except for error handling
+
+    # Assign the main_url
+    main_url = 'https://astrogeology.usgs.gov/'
+    browser.visit("https://astrogeology.usgs.gov/search/results?q=hemisphere+enhanced&k1=target&v1=Mars")
     
-    # Assigning columns, and set 'description' as index 
-    df.columns=['description', 'value']
-    df.set_index('description', inplace=True)
 
-    #Convert back to HTML format, add bootstrap
-    return df.to_html()
+    # Parse the HTML with soup
+    html = browser.html
+    img_soup = soup(html, 'html.parser')
 
-
-## > SCRAPE HEMISPHERE <
-
-def hemisphere(browser):
-    url='https://astrogeology.usgs.gov/search/results?q=hemisphere+enhanced&k1=target&v1=Mars'
-    browser.visit(url)
-
-
+    # 2. Create a list to hold the images and titles.
     hemisphere_image_urls = []
 
-    imgs_links= browser.find_by_css("a.product-item h3")
+    # 3. Write code to retrieve the image urls and titles for each hemisphere.
 
-    for x in range(len(imgs_links)):
-        hemisphere={}
+    # Results returned as an iterable list
+    results = img_soup.find_all('div', class_='item')
 
-        # Find elements going to click link 
-        browser.find_by_css("a.product-item h3")[x].click()
+    # Loop through returned results
+    for result in results:
+        try:
+        
+            # Retrieve the titles
+            title = result.find('h3').text
+            print(title)
+            
+            # Get the link to go the full image site
+            img_url = result.find('a')['href']
+            print(img_url)
+            
+            # Creating the full_img_url
+            full_img_url = main_url + img_url
+            print(full_img_url)
+            
+            # Use browser to go to the full image url and set up the HTML parser
+            browser.visit(full_img_url)
+            html = browser.html
+            img_soup = soup(html, 'html.parser')
+            
+            # Retrieve the full image urls
+            hemisphere_img = img_soup.find('div',class_='downloads')
+            hemisphere_full_img = hemisphere_img.find('a')['href']
+            
+            # Printing hemisphere_full_img
+            print(hemisphere_full_img)
+            
+            # Creating hemispheres dict
+            hemispheres = dict({'img_url':hemisphere_full_img, 'title':title})
+        
+            #Append the hemisphere_image_urls list
+            hemisphere_image_urls.append(hemispheres)
 
-        # Find sample Image link
-        sample_img= browser.find_link_by_text("Sample").first
-        hemisphere['img_url']=sample_img['href']
+        except AttributeError:
+            return None
 
-        # Get hemisphere Title
-        hemisphere['title']=browser.find_by_css("h2.title").text
-
-        #Add Objects to hemisphere_img_urls list
-        hemisphere_image_urls.append(hemisphere)
-
-        # Go Back
-        browser.back()
     return hemisphere_image_urls
 
-if __name__== "__main__":
-    # If running as script, print scrapped data
+if __name__ == "__main__":
+
+    # If running as script, print scraped data
     print(scrape_all())
